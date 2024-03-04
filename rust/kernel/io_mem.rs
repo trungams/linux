@@ -34,8 +34,9 @@ impl Resource {
 ///
 /// # Invariants
 ///
-/// `ptr` is a non-null and valid address of at least `SIZE` bytes and returned by an `ioremap`
-/// variant. `ptr` is also 8-byte aligned.
+/// `ptr` is a non-null and valid address of a memory area of a length of at
+/// least `SIZE` bytes. It is returned by an `ioremap` variant. `ptr` is also
+/// 8-byte aligned.
 ///
 /// # Examples
 ///
