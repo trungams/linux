@@ -76,6 +76,36 @@ mod std_vendor;
 /// # Ok::<(), Error>(())
 /// ```
 ///
+/// Getting a pinned mutable reference to an object.
+///
+/// ```
+/// use kernel::sync::Arc;
+///
+/// struct Example {
+///     a: u32,
+///     b: u32,
+/// }
+///
+/// // Create a mutable refcounted instance of `Example`.
+/// let mut obj = Arc::try_new(Example { a: 10, b: 20 })?;
+///
+/// // Get another pointer to `obj` and increment the refcount.
+/// let cloned = obj.clone();
+///
+/// // There are 2 pointers pointing to the same object at the moment, so it's not possible
+/// // to get a mutable reference to the object.
+/// assert!(Arc::get_pinned_mut(&mut obj).is_none());
+///
+/// // Destroy `cloned` and decrement its refcount.
+/// drop(cloned);
+///
+/// // Since there is only 1 pointer left, `Arc::get_pinned_mut` may now return a mutable reference.
+/// Arc::get_pinned_mut(&mut obj).unwrap().a = 20;
+/// assert_eq!(obj.a, 20);
+///
+/// # Ok::<(), Error>(())
+/// ```
+///
 /// Using `Arc<T>` as the type of `self`:
 ///
 /// ```
@@ -265,6 +295,23 @@ impl<T: ?Sized> Arc<T> {
         // the returned `ArcBorrow` ensures that the object remains alive and that no mutable
         // reference can be created.
         unsafe { ArcBorrow::new(self.ptr) }
+    }
+
+    /// Returns a pinned mutable reference into the given [`Arc`] if the reference count is exactly 1.
+    /// Returns [`None`] otherwise, since it is not safe to mutate a shared value.
+    pub fn get_pinned_mut(this: &mut Arc<T>) -> Option<Pin<&mut T>> {
+        // SAFETY: By the type invariant, there is necessarily a reference to the object.
+        let refcount = unsafe { this.ptr.as_ref() }.refcount.get();
+
+        // SAFETY: By the type invariant, there is necessarily a reference to the object.
+        let is_unique = unsafe { bindings::refcount_read(refcount) == 1 };
+
+        if is_unique {
+            // SAFETY: By the type invariant, the data is always pinned.
+            unsafe { Some(Pin::new_unchecked(&mut { this.ptr.as_mut() }.data)) }
+        } else {
+            None
+        }
     }
 
     /// Compare whether two [`Arc`] pointers reference the same underlying object.

@@ -97,6 +97,12 @@ bool rust_helper_refcount_dec_and_test(refcount_t *r)
 }
 EXPORT_SYMBOL_GPL(rust_helper_refcount_dec_and_test);
 
+unsigned int rust_helper_refcount_read(const refcount_t *r)
+{
+	return refcount_read(r);
+}
+EXPORT_SYMBOL_GPL(rust_helper_refcount_read);
+
 __force void *rust_helper_ERR_PTR(long err)
 {
 	return ERR_PTR(err);
