@@ -1365,8 +1365,7 @@ static int thunderx_ocx_probe(struct pci_dev *pdev,
 	idx = edac_device_alloc_index();
 	snprintf(name, sizeof(name), "OCX%d", idx);
 	edac_dev = edac_device_alloc_ctl_info(sizeof(struct thunderx_ocx),
-					      name, 1, "CCPI", 1,
-					      0, NULL, 0, idx);
+					      name, 1, "CCPI", 1, 0, idx);
 	if (!edac_dev) {
 		dev_err(&pdev->dev, "Cannot allocate EDAC device\n");
 		return -ENOMEM;
@@ -1761,5 +1760,393 @@ static irqreturn_t thunderx_l2c_tad_isr(int irq, void *irq_id)
 {
 	struct msix_entry *msix = irq_id;
 	struct thunderx_l2c *tad = container_of(msix, struct thunderx_l2c,
-						msix_ent)y *msix = irq_id;
-	stru                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+						msix_ent);
+
+	unsigned long head = ring_pos(tad->ring_head, ARRAY_SIZE(tad->err_ctx));
+	struct l2c_err_ctx *ctx = &tad->err_ctx[head];
+
+	ctx->reg_int = readq(tad->regs + L2C_TAD_INT_W1C);
+
+	if (ctx->reg_int & L2C_TAD_INT_ECC) {
+		ctx->reg_ext_name = "TQD_ERR";
+		ctx->reg_ext = readq(tad->regs + L2C_TAD_TQD_ERR);
+	} else if (ctx->reg_int & L2C_TAD_INT_TAG) {
+		ctx->reg_ext_name = "TTG_ERR";
+		ctx->reg_ext = readq(tad->regs + L2C_TAD_TTG_ERR);
+	} else if (ctx->reg_int & L2C_TAD_INT_LFBTO) {
+		ctx->reg_ext_name = "TIMEOUT";
+		ctx->reg_ext = readq(tad->regs + L2C_TAD_TIMEOUT);
+	} else if (ctx->reg_int & L2C_TAD_INT_DISOCI) {
+		ctx->reg_ext_name = "ERR";
+		ctx->reg_ext = readq(tad->regs + L2C_TAD_ERR);
+	}
+
+	writeq(ctx->reg_int, tad->regs + L2C_TAD_INT_W1C);
+
+	tad->ring_head++;
+
+	return IRQ_WAKE_THREAD;
+}
+
+static irqreturn_t thunderx_l2c_cbc_isr(int irq, void *irq_id)
+{
+	struct msix_entry *msix = irq_id;
+	struct thunderx_l2c *cbc = container_of(msix, struct thunderx_l2c,
+						msix_ent);
+
+	unsigned long head = ring_pos(cbc->ring_head, ARRAY_SIZE(cbc->err_ctx));
+	struct l2c_err_ctx *ctx = &cbc->err_ctx[head];
+
+	ctx->reg_int = readq(cbc->regs + L2C_CBC_INT_W1C);
+
+	if (ctx->reg_int & L2C_CBC_INT_RSD) {
+		ctx->reg_ext_name = "RSDERR";
+		ctx->reg_ext = readq(cbc->regs + L2C_CBC_RSDERR);
+	} else if (ctx->reg_int & L2C_CBC_INT_MIB) {
+		ctx->reg_ext_name = "MIBERR";
+		ctx->reg_ext = readq(cbc->regs + L2C_CBC_MIBERR);
+	} else if (ctx->reg_int & L2C_CBC_INT_IODISOCI) {
+		ctx->reg_ext_name = "IODISOCIERR";
+		ctx->reg_ext = readq(cbc->regs + L2C_CBC_IODISOCIERR);
+	}
+
+	writeq(ctx->reg_int, cbc->regs + L2C_CBC_INT_W1C);
+
+	cbc->ring_head++;
+
+	return IRQ_WAKE_THREAD;
+}
+
+static irqreturn_t thunderx_l2c_mci_isr(int irq, void *irq_id)
+{
+	struct msix_entry *msix = irq_id;
+	struct thunderx_l2c *mci = container_of(msix, struct thunderx_l2c,
+						msix_ent);
+
+	unsigned long head = ring_pos(mci->ring_head, ARRAY_SIZE(mci->err_ctx));
+	struct l2c_err_ctx *ctx = &mci->err_ctx[head];
+
+	ctx->reg_int = readq(mci->regs + L2C_MCI_INT_W1C);
+	ctx->reg_ext = readq(mci->regs + L2C_MCI_ERR);
+
+	writeq(ctx->reg_int, mci->regs + L2C_MCI_INT_W1C);
+
+	ctx->reg_ext_name = "ERR";
+
+	mci->ring_head++;
+
+	return IRQ_WAKE_THREAD;
+}
+
+static irqreturn_t thunderx_l2c_threaded_isr(int irq, void *irq_id)
+{
+	struct msix_entry *msix = irq_id;
+	struct thunderx_l2c *l2c = container_of(msix, struct thunderx_l2c,
+						msix_ent);
+
+	unsigned long tail = ring_pos(l2c->ring_tail, ARRAY_SIZE(l2c->err_ctx));
+	struct l2c_err_ctx *ctx = &l2c->err_ctx[tail];
+	irqreturn_t ret = IRQ_NONE;
+
+	u64 mask_ue, mask_ce;
+	const struct error_descr *l2_errors;
+	char *reg_int_name;
+
+	char *msg;
+	char *other;
+
+	msg = kmalloc(OCX_MESSAGE_SIZE, GFP_KERNEL);
+	other = kmalloc(OCX_OTHER_SIZE, GFP_KERNEL);
+
+	if (!msg || !other)
+		goto err_free;
+
+	switch (l2c->pdev->device) {
+	case PCI_DEVICE_ID_THUNDER_L2C_TAD:
+		reg_int_name = "L2C_TAD_INT";
+		mask_ue = L2C_TAD_INT_UE;
+		mask_ce = L2C_TAD_INT_CE;
+		l2_errors = l2_tad_errors;
+		break;
+	case PCI_DEVICE_ID_THUNDER_L2C_CBC:
+		reg_int_name = "L2C_CBC_INT";
+		mask_ue = L2C_CBC_INT_UE;
+		mask_ce = L2C_CBC_INT_CE;
+		l2_errors = l2_cbc_errors;
+		break;
+	case PCI_DEVICE_ID_THUNDER_L2C_MCI:
+		reg_int_name = "L2C_MCI_INT";
+		mask_ue = L2C_MCI_INT_VBFDBE;
+		mask_ce = L2C_MCI_INT_VBFSBE;
+		l2_errors = l2_mci_errors;
+		break;
+	default:
+		dev_err(&l2c->pdev->dev, "Unsupported device: %04x\n",
+			l2c->pdev->device);
+		goto err_free;
+	}
+
+	while (CIRC_CNT(l2c->ring_head, l2c->ring_tail,
+			ARRAY_SIZE(l2c->err_ctx))) {
+		snprintf(msg, L2C_MESSAGE_SIZE,
+			 "%s: %s: %016llx, %s: %016llx",
+			 l2c->edac_dev->ctl_name, reg_int_name, ctx->reg_int,
+			 ctx->reg_ext_name, ctx->reg_ext);
+
+		decode_register(other, L2C_OTHER_SIZE, l2_errors, ctx->reg_int);
+
+		strlcat(msg, other, L2C_MESSAGE_SIZE);
+
+		if (ctx->reg_int & mask_ue)
+			edac_device_handle_ue(l2c->edac_dev, 0, 0, msg);
+		else if (ctx->reg_int & mask_ce)
+			edac_device_handle_ce(l2c->edac_dev, 0, 0, msg);
+
+		l2c->ring_tail++;
+	}
+
+	ret = IRQ_HANDLED;
+
+err_free:
+	kfree(other);
+	kfree(msg);
+
+	return ret;
+}
+
+#define L2C_DEBUGFS_ATTR(_name, _reg)	DEBUGFS_REG_ATTR(l2c, _name, _reg)
+
+L2C_DEBUGFS_ATTR(tad_int, L2C_TAD_INT_W1S);
+
+static struct debugfs_entry *l2c_tad_dfs_ents[] = {
+	&debugfs_tad_int,
+};
+
+L2C_DEBUGFS_ATTR(cbc_int, L2C_CBC_INT_W1S);
+
+static struct debugfs_entry *l2c_cbc_dfs_ents[] = {
+	&debugfs_cbc_int,
+};
+
+L2C_DEBUGFS_ATTR(mci_int, L2C_MCI_INT_W1S);
+
+static struct debugfs_entry *l2c_mci_dfs_ents[] = {
+	&debugfs_mci_int,
+};
+
+static const struct pci_device_id thunderx_l2c_pci_tbl[] = {
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, PCI_DEVICE_ID_THUNDER_L2C_TAD), },
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, PCI_DEVICE_ID_THUNDER_L2C_CBC), },
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, PCI_DEVICE_ID_THUNDER_L2C_MCI), },
+	{ 0, },
+};
+
+static int thunderx_l2c_probe(struct pci_dev *pdev,
+			      const struct pci_device_id *id)
+{
+	struct thunderx_l2c *l2c;
+	struct edac_device_ctl_info *edac_dev;
+	struct debugfs_entry **l2c_devattr;
+	size_t dfs_entries;
+	irqreturn_t (*thunderx_l2c_isr)(int, void *) = NULL;
+	char name[32];
+	const char *fmt;
+	u64 reg_en_offs, reg_en_mask;
+	int idx;
+	int ret;
+
+	ret = pcim_enable_device(pdev);
+	if (ret) {
+		dev_err(&pdev->dev, "Cannot enable PCI device: %d\n", ret);
+		return ret;
+	}
+
+	ret = pcim_iomap_regions(pdev, BIT(0), "thunderx_l2c");
+	if (ret) {
+		dev_err(&pdev->dev, "Cannot map PCI resources: %d\n", ret);
+		return ret;
+	}
+
+	switch (pdev->device) {
+	case PCI_DEVICE_ID_THUNDER_L2C_TAD:
+		thunderx_l2c_isr = thunderx_l2c_tad_isr;
+		l2c_devattr = l2c_tad_dfs_ents;
+		dfs_entries = ARRAY_SIZE(l2c_tad_dfs_ents);
+		fmt = "L2C-TAD%d";
+		reg_en_offs = L2C_TAD_INT_ENA_W1S;
+		reg_en_mask = L2C_TAD_INT_ENA_ALL;
+		break;
+	case PCI_DEVICE_ID_THUNDER_L2C_CBC:
+		thunderx_l2c_isr = thunderx_l2c_cbc_isr;
+		l2c_devattr = l2c_cbc_dfs_ents;
+		dfs_entries = ARRAY_SIZE(l2c_cbc_dfs_ents);
+		fmt = "L2C-CBC%d";
+		reg_en_offs = L2C_CBC_INT_ENA_W1S;
+		reg_en_mask = L2C_CBC_INT_ENA_ALL;
+		break;
+	case PCI_DEVICE_ID_THUNDER_L2C_MCI:
+		thunderx_l2c_isr = thunderx_l2c_mci_isr;
+		l2c_devattr = l2c_mci_dfs_ents;
+		dfs_entries = ARRAY_SIZE(l2c_mci_dfs_ents);
+		fmt = "L2C-MCI%d";
+		reg_en_offs = L2C_MCI_INT_ENA_W1S;
+		reg_en_mask = L2C_MCI_INT_ENA_ALL;
+		break;
+	default:
+		//Should never ever get here
+		dev_err(&pdev->dev, "Unsupported PCI device: %04x\n",
+			pdev->device);
+		return -EINVAL;
+	}
+
+	idx = edac_device_alloc_index();
+	snprintf(name, sizeof(name), fmt, idx);
+
+	edac_dev = edac_device_alloc_ctl_info(sizeof(struct thunderx_l2c),
+					      name, 1, "L2C", 1, 0, idx);
+	if (!edac_dev) {
+		dev_err(&pdev->dev, "Cannot allocate EDAC device\n");
+		return -ENOMEM;
+	}
+
+	l2c = edac_dev->pvt_info;
+	l2c->edac_dev = edac_dev;
+
+	l2c->regs = pcim_iomap_table(pdev)[0];
+	if (!l2c->regs) {
+		dev_err(&pdev->dev, "Cannot map PCI resources\n");
+		ret = -ENODEV;
+		goto err_free;
+	}
+
+	l2c->pdev = pdev;
+
+	l2c->ring_head = 0;
+	l2c->ring_tail = 0;
+
+	l2c->msix_ent.entry = 0;
+	l2c->msix_ent.vector = 0;
+
+	ret = pci_enable_msix_exact(pdev, &l2c->msix_ent, 1);
+	if (ret) {
+		dev_err(&pdev->dev, "Cannot enable interrupt: %d\n", ret);
+		goto err_free;
+	}
+
+	ret = devm_request_threaded_irq(&pdev->dev, l2c->msix_ent.vector,
+					thunderx_l2c_isr,
+					thunderx_l2c_threaded_isr,
+					0, "[EDAC] ThunderX L2C",
+					&l2c->msix_ent);
+	if (ret)
+		goto err_free;
+
+	edac_dev->dev = &pdev->dev;
+	edac_dev->dev_name = dev_name(&pdev->dev);
+	edac_dev->mod_name = "thunderx-l2c";
+	edac_dev->ctl_name = "thunderx-l2c";
+
+	ret = edac_device_add_device(edac_dev);
+	if (ret) {
+		dev_err(&pdev->dev, "Cannot add EDAC device: %d\n", ret);
+		goto err_free;
+	}
+
+	if (IS_ENABLED(CONFIG_EDAC_DEBUG)) {
+		l2c->debugfs = edac_debugfs_create_dir(pdev->dev.kobj.name);
+
+		ret = thunderx_create_debugfs_nodes(l2c->debugfs, l2c_devattr,
+					      l2c, dfs_entries);
+
+		if (ret != dfs_entries) {
+			dev_warn(&pdev->dev, "Error creating debugfs entries: %d%s\n",
+				 ret, ret >= 0 ? " created" : "");
+		}
+	}
+
+	pci_set_drvdata(pdev, edac_dev);
+
+	writeq(reg_en_mask, l2c->regs + reg_en_offs);
+
+	return 0;
+
+err_free:
+	edac_device_free_ctl_info(edac_dev);
+
+	return ret;
+}
+
+static void thunderx_l2c_remove(struct pci_dev *pdev)
+{
+	struct edac_device_ctl_info *edac_dev = pci_get_drvdata(pdev);
+	struct thunderx_l2c *l2c = edac_dev->pvt_info;
+
+	switch (pdev->device) {
+	case PCI_DEVICE_ID_THUNDER_L2C_TAD:
+		writeq(L2C_TAD_INT_ENA_ALL, l2c->regs + L2C_TAD_INT_ENA_W1C);
+		break;
+	case PCI_DEVICE_ID_THUNDER_L2C_CBC:
+		writeq(L2C_CBC_INT_ENA_ALL, l2c->regs + L2C_CBC_INT_ENA_W1C);
+		break;
+	case PCI_DEVICE_ID_THUNDER_L2C_MCI:
+		writeq(L2C_MCI_INT_ENA_ALL, l2c->regs + L2C_MCI_INT_ENA_W1C);
+		break;
+	}
+
+	edac_debugfs_remove_recursive(l2c->debugfs);
+
+	edac_device_del_device(&pdev->dev);
+	edac_device_free_ctl_info(edac_dev);
+}
+
+MODULE_DEVICE_TABLE(pci, thunderx_l2c_pci_tbl);
+
+static struct pci_driver thunderx_l2c_driver = {
+	.name     = "thunderx_l2c_edac",
+	.probe    = thunderx_l2c_probe,
+	.remove   = thunderx_l2c_remove,
+	.id_table = thunderx_l2c_pci_tbl,
+};
+
+static int __init thunderx_edac_init(void)
+{
+	int rc = 0;
+
+	if (ghes_get_devices())
+		return -EBUSY;
+
+	rc = pci_register_driver(&thunderx_lmc_driver);
+	if (rc)
+		return rc;
+
+	rc = pci_register_driver(&thunderx_ocx_driver);
+	if (rc)
+		goto err_lmc;
+
+	rc = pci_register_driver(&thunderx_l2c_driver);
+	if (rc)
+		goto err_ocx;
+
+	return rc;
+err_ocx:
+	pci_unregister_driver(&thunderx_ocx_driver);
+err_lmc:
+	pci_unregister_driver(&thunderx_lmc_driver);
+
+	return rc;
+}
+
+static void __exit thunderx_edac_exit(void)
+{
+	pci_unregister_driver(&thunderx_l2c_driver);
+	pci_unregister_driver(&thunderx_ocx_driver);
+	pci_unregister_driver(&thunderx_lmc_driver);
+
+}
+
+module_init(thunderx_edac_init);
+module_exit(thunderx_edac_exit);
+
+MODULE_LICENSE("GPL v2");
+MODULE_AUTHOR("Cavium, Inc.");
+MODULE_DESCRIPTION("EDAC Driver for Cavium ThunderX");
